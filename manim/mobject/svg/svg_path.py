@@ -361,8 +361,28 @@ class SVGPathMobject(VMobject):
         # this call to "string to numbers" where problems like parsing 0.5.6 lie
         numbers = string_to_numbers(coord_string)
 
+        # arcs are weirdest, handle them first.
+        if command == "A":
+            # We have to handle offsets here because ellipses are complicated.
+            if is_relative:
+                numbers[5] += start_point[0]
+                numbers[6] += start_point[1]
+
+            # If the endpoints (x1, y1) and (x2, y2) are identical, then this
+            # is equivalent to omitting the elliptical arc segment entirely.
+            # for more information of where this math came from visit:
+            #  http://www.w3.org/TR/SVG11/implnote.html#ArcImplementationNotes
+            if start_point[0] == numbers[5] and start_point[1] == numbers[6]:
+                return
+
+            result = np.array(
+                elliptical_arc_to_cubic_bezier(*start_point[:2], *numbers)
+            )
+
+            return result
+
         # H and V expect a sequence of single coords, not coord pairs like the rest of the commands.
-        if command == "H":
+        elif command == "H":
             result = np.zeros((len(numbers), self.dim))
             result[:, 0] = numbers
             if not is_relative:
@@ -373,18 +393,6 @@ class SVGPathMobject(VMobject):
             result[:, 1] = numbers
             if not is_relative:
                 result[:, 0] = start_point[0]
-
-        elif command == "A":
-            # If the endpoints (x1, y1) and (x2, y2) are identical, then this
-            # is equivalent to omitting the elliptical arc segment entirely.
-            # for more information of where this math came from visit:
-            #  http://www.w3.org/TR/SVG11/implnote.html#ArcImplementationNotes
-            if numbers[:2] == numbers[-2:]:
-                return
-
-            result = np.array(
-                elliptical_arc_to_cubic_bezier(*start_point[:2], *numbers)
-            )
 
         else:
             num_points = len(numbers) // 2
@@ -402,7 +410,7 @@ class SVGPathMobject(VMobject):
         if command in ["Q", "S"]:
             entries = 2
         # Only cubic curves expect three points.
-        elif command in ["A", "C"]:
+        elif command == "C":
             entries = 3
 
         offset = start_point
